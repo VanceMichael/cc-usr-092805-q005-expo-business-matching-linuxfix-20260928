@@ -20,7 +20,13 @@ class Outbox:
     def enqueue(self, *, topic: str, aggregate_id: str, payload: dict, available_at: str | None = None) -> str:
         message_id = new_id("msg"); available_at = available_at or self.clock.now()
         with self.database.transaction() as connection:
-            connection.execute("INSERT INTO outbox_messages(message_id,topic,aggregate_id,payload_json,available_at,status) VALUES(?,?,?,?,?,?)", (message_id, topic, aggregate_id, canonical_json(payload), available_at, "pending"))
+            self.insert(connection, message_id=message_id, topic=topic, aggregate_id=aggregate_id, payload=payload, available_at=available_at)
+        return message_id
+
+    @staticmethod
+    def insert(connection, *, message_id: str, topic: str, aggregate_id: str, payload: dict, available_at: str) -> str:
+        """在调用方已开启的事务/连接内写入通知，保证与业务状态同提交。"""
+        connection.execute("INSERT INTO outbox_messages(message_id,topic,aggregate_id,payload_json,available_at,status) VALUES(?,?,?,?,?,?)", (message_id, topic, aggregate_id, canonical_json(payload), available_at, "pending"))
         return message_id
 
     def lease(self, *, owner: str, seconds: int = 30, limit: int = 20) -> list[dict]:

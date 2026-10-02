@@ -124,6 +124,147 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_due ON scheduled_jobs(status, run_at, lease_until);
+-- 展后供需对接（expo）
+CREATE TABLE IF NOT EXISTS expo_demands (
+    demand_id TEXT PRIMARY KEY,
+    demand_identity TEXT NOT NULL UNIQUE,
+    buyer_org TEXT NOT NULL,
+    current_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS expo_demand_versions (
+    demand_id TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    quantity_min INTEGER NOT NULL,
+    quantity_max INTEGER NOT NULL,
+    delivery_regions_json TEXT NOT NULL,
+    certifications_json TEXT NOT NULL,
+    window_from TEXT NOT NULL,
+    window_to TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    request_key TEXT NOT NULL,
+    PRIMARY KEY(demand_id, version_no)
+);
+CREATE TABLE IF NOT EXISTS expo_products (
+    product_id TEXT PRIMARY KEY,
+    supplier_org TEXT NOT NULL,
+    current_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS expo_product_versions (
+    product_id TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    qty_min INTEGER NOT NULL,
+    qty_max INTEGER NOT NULL,
+    delivery_regions_json TEXT NOT NULL,
+    certifications_json TEXT NOT NULL,
+    window_from TEXT NOT NULL,
+    window_to TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    request_key TEXT NOT NULL,
+    PRIMARY KEY(product_id, version_no)
+);
+CREATE TABLE IF NOT EXISTS expo_lead_registry (
+    demand_identity TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    PRIMARY KEY(demand_identity, source, source_ref)
+);
+CREATE TABLE IF NOT EXISTS expo_lead_sources (
+    demand_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    attached_at TEXT NOT NULL,
+    PRIMARY KEY(demand_id, source, source_ref)
+);
+CREATE TABLE IF NOT EXISTS expo_opportunities (
+    opportunity_id TEXT PRIMARY KEY,
+    demand_id TEXT NOT NULL,
+    demand_version_no INTEGER NOT NULL,
+    product_id TEXT NOT NULL,
+    product_version_no INTEGER NOT NULL,
+    total_qty INTEGER NOT NULL,
+    fulfilled_qty INTEGER NOT NULL,
+    remaining_qty INTEGER NOT NULL,
+    current_stage TEXT,
+    stage_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    match_grants_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS expo_pipeline_records (
+    record_id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL,
+    stage_no INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    owner_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    receipt_key TEXT NOT NULL UNIQUE,
+    payload_digest TEXT NOT NULL,
+    due_at TEXT,
+    job_id TEXT,
+    recorded_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS expo_pipeline_opportunity ON expo_pipeline_records(opportunity_id, stage_no);
+CREATE TABLE IF NOT EXISTS expo_meetings (
+    meeting_id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    venue_resource_id TEXT NOT NULL,
+    personnel_json TEXT NOT NULL,
+    venue_reservation_id TEXT NOT NULL,
+    personnel_reservations_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    buyer_confirmed INTEGER NOT NULL DEFAULT 0,
+    supplier_confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS expo_minutes (
+    minutes_id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
+    minutes_no INTEGER NOT NULL,
+    content_json TEXT NOT NULL,
+    scope_summary TEXT NOT NULL,
+    status TEXT NOT NULL,
+    buyer_confirmed INTEGER NOT NULL DEFAULT 0,
+    supplier_confirmed INTEGER NOT NULL DEFAULT 0,
+    proposed_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    confirmed_at TEXT,
+    UNIQUE(meeting_id, minutes_no)
+);
+CREATE TABLE IF NOT EXISTS expo_intake_conflicts (
+    conflict_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    intake_key TEXT NOT NULL,
+    existing_digest TEXT NOT NULL,
+    incoming_digest TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolution TEXT NOT NULL DEFAULT '',
+    resolved_by TEXT NOT NULL DEFAULT '',
+    received_at TEXT NOT NULL,
+    resolved_at TEXT
+);
 """
 
 

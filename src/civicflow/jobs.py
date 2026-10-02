@@ -20,8 +20,25 @@ class JobQueue:
     def schedule(self, *, job_type: str, subject_id: str, run_at: str, payload: dict) -> str:
         job_id = new_id("job"); run_at = canonical_instant(run_at)
         with self.database.transaction() as connection:
-            connection.execute("INSERT INTO scheduled_jobs(job_id,job_type,subject_id,run_at,payload_json,status) VALUES(?,?,?,?,?,'waiting')", (job_id, job_type, subject_id, run_at, canonical_json(payload)))
+            self.insert(connection, job_id=job_id, job_type=job_type, subject_id=subject_id, run_at=run_at, payload=payload)
         return job_id
+
+    @staticmethod
+    def insert(connection, *, job_id: str, job_type: str, subject_id: str, run_at: str, payload: dict) -> str:
+        """在调用方已开启的事务/连接内写入任务，保证与业务状态同提交。"""
+        connection.execute("INSERT INTO scheduled_jobs(job_id,job_type,subject_id,run_at,payload_json,status) VALUES(?,?,?,?,?,'waiting')", (job_id, job_type, subject_id, run_at, canonical_json(payload)))
+        return job_id
+
+    def cancel(self, job_id: str, *, reason: str = "") -> dict:
+        """取消尚未完成的任务；已成功的任务保持不变。"""
+        with self.database.transaction() as connection:
+            changed = connection.execute("UPDATE scheduled_jobs SET status='cancelled',lease_until=NULL,last_error=? WHERE job_id=? AND status IN ('waiting','retry','running')", (reason[:500], job_id)).rowcount
+            if changed == 0:
+                row = connection.execute("SELECT status FROM scheduled_jobs WHERE job_id=?", (job_id,)).fetchone()
+                if not row:
+                    raise NotFoundError("任务不存在")
+                return {"job_id": job_id, "status": row["status"]}
+            return {"job_id": job_id, "status": "cancelled"}
 
     def claim_due(self, *, seconds: int = 30, limit: int = 20) -> list[dict]:
         if seconds < 1 or limit < 1:
