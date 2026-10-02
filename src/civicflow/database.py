@@ -124,6 +124,147 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_due ON scheduled_jobs(status, run_at, lease_until);
+CREATE TABLE IF NOT EXISTS match_leads (
+    lead_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    demand_id TEXT,
+    payload_json TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_by TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS match_lead_fingerprint ON match_leads(fingerprint);
+CREATE TABLE IF NOT EXISTS match_lead_sources (
+    lead_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    payload_digest TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    PRIMARY KEY(lead_id, source, source_key, sequence)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS match_lead_source_unique ON match_lead_sources(source, source_key, sequence);
+CREATE TABLE IF NOT EXISTS match_lead_conflicts (
+    conflict_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id TEXT,
+    source TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    field_name TEXT NOT NULL,
+    existing_value_json TEXT NOT NULL,
+    incoming_value_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    resolution TEXT NOT NULL DEFAULT '',
+    resolved_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS match_responses (
+    response_id TEXT PRIMARY KEY,
+    demand_id TEXT NOT NULL,
+    demand_version INTEGER NOT NULL,
+    offering_id TEXT NOT NULL,
+    offering_version INTEGER NOT NULL,
+    supplier_org TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS match_responses_demand ON match_responses(demand_id, status);
+CREATE TABLE IF NOT EXISTS match_opportunities (
+    opportunity_id TEXT PRIMARY KEY,
+    lead_id TEXT,
+    demand_id TEXT NOT NULL,
+    demand_version INTEGER NOT NULL,
+    offering_id TEXT NOT NULL,
+    offering_version INTEGER NOT NULL,
+    meeting_id TEXT,
+    response_id TEXT,
+    total_quantity INTEGER NOT NULL,
+    allocated_quantity INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS match_opportunities_demand ON match_opportunities(demand_id, status);
+CREATE TABLE IF NOT EXISTS match_opportunity_shares (
+    share_id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    owner_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reference TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS match_shares_opportunity ON match_opportunity_shares(opportunity_id, stage);
+CREATE TABLE IF NOT EXISTS match_meetings (
+    meeting_id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL,
+    room_reservation_id TEXT NOT NULL,
+    people_reservation_id TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    parties_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS match_meeting_minutes (
+    minute_id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content_json TEXT NOT NULL,
+    changed_by_party TEXT NOT NULL,
+    change_note TEXT NOT NULL,
+    buyer_confirmed_at TEXT,
+    seller_confirmed_at TEXT,
+    superseded_by TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(meeting_id, version)
+);
+CREATE TABLE IF NOT EXISTS match_due_items (
+    due_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    job_id TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS match_due_ready ON match_due_items(status, due_at);
+CREATE TABLE IF NOT EXISTS match_handovers (
+    handover_id TEXT PRIMARY KEY,
+    share_id TEXT NOT NULL,
+    from_owner TEXT NOT NULL,
+    to_owner TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS match_handovers_share ON match_handovers(share_id, created_at);
+CREATE TABLE IF NOT EXISTS match_share_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    share_id TEXT NOT NULL,
+    opportunity_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    from_stage TEXT NOT NULL DEFAULT '',
+    to_stage TEXT NOT NULL DEFAULT '',
+    detail_json TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS match_share_events_share ON match_share_events(share_id, event_id);
 """
 
 

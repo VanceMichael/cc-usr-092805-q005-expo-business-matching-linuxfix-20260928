@@ -18,9 +18,13 @@ class JobQueue:
     clock: Clock
 
     def schedule(self, *, job_type: str, subject_id: str, run_at: str, payload: dict) -> str:
-        job_id = new_id("job"); run_at = canonical_instant(run_at)
         with self.database.transaction() as connection:
-            connection.execute("INSERT INTO scheduled_jobs(job_id,job_type,subject_id,run_at,payload_json,status) VALUES(?,?,?,?,?,'waiting')", (job_id, job_type, subject_id, run_at, canonical_json(payload)))
+            return self.schedule_in(connection, job_type=job_type, subject_id=subject_id, run_at=run_at, payload=payload)
+
+    def schedule_in(self, connection, *, job_type: str, subject_id: str, run_at: str, payload: dict) -> str:
+        """在已有事务内登记持久任务，业务写入与到期点同生共死。"""
+        job_id = new_id("job"); run_at = canonical_instant(run_at)
+        connection.execute("INSERT INTO scheduled_jobs(job_id,job_type,subject_id,run_at,payload_json,status) VALUES(?,?,?,?,?,'waiting')", (job_id, job_type, subject_id, run_at, canonical_json(payload)))
         return job_id
 
     def claim_due(self, *, seconds: int = 30, limit: int = 20) -> list[dict]:
@@ -50,3 +54,18 @@ class JobQueue:
                 raise NotFoundError("任务不存在")
             status = "failed" if row["attempt"] >= 5 else "retry"
             connection.execute("UPDATE scheduled_jobs SET status=?,run_at=?,lease_until=NULL,last_error=? WHERE job_id=?", (status, retry_at, error[:500], job_id))
+
+    def recover_stale(self) -> list[str]:
+        """服务中断恢复：把租约已过期但仍卡在 running 的任务重新放回等待队列。
+
+        成功完成或显式失败的任务（succeeded/failed/dead）不会受影响；只有崩溃时
+        被认领、lease_until 已过的 running 任务回到 waiting，等待重新认领。
+        """
+        with self.database.transaction() as connection:
+            rows = connection.execute(
+                "SELECT job_id FROM scheduled_jobs WHERE status='running' AND lease_until IS NOT NULL AND lease_until<?",
+                (self.clock.now(),)).fetchall()
+            job_ids = [row["job_id"] for row in rows]
+            for job_id in job_ids:
+                connection.execute("UPDATE scheduled_jobs SET status='waiting',lease_until=NULL WHERE job_id=?", (job_id,))
+            return job_ids

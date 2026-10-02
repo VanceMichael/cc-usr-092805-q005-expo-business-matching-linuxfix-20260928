@@ -11,6 +11,7 @@ from .idempotency import IdempotencyStore
 from .inbox import Inbox
 from .jobs import JobQueue
 from .ledger import Ledger
+from .matchmaking import MatchmakingService
 from .outbox import Outbox
 from .repository import EntityRepository
 from .reservations import ReservationBook
@@ -27,17 +28,24 @@ class CivicFlow:
     ledger: Ledger
     reservations: ReservationBook
     jobs: JobQueue
+    matchmaking: MatchmakingService
 
     @classmethod
     def open(cls, path: str | Path, *, fixed_now: str | None = None) -> "CivicFlow":
         database = Database(path); database.initialize(); clock = Clock(fixed_now)
         audit = AuditLog(clock); idempotency = IdempotencyStore(clock)
         repository = EntityRepository(database, clock, audit, idempotency)
-        return cls(database, clock, repository, Inbox(database, clock), Outbox(database, clock), Ledger(database, clock), ReservationBook(database), JobQueue(database, clock))
+        inbox = Inbox(database, clock); outbox = Outbox(database, clock)
+        ledger = Ledger(database, clock); reservations = ReservationBook(database)
+        jobs = JobQueue(database, clock)
+        matchmaking = MatchmakingService(repository, inbox, reservations, jobs, outbox)
+        return cls(database, clock, repository, inbox, outbox, ledger, reservations, jobs, matchmaking)
 
     def verify(self) -> dict:
         with self.database.connect() as connection:
             audit_count = AuditLog(self.clock).verify(connection)
             entity_count = connection.execute("SELECT COUNT(*) AS n FROM entities").fetchone()["n"]
             conflict_count = connection.execute("SELECT COUNT(*) AS n FROM inbox_conflicts").fetchone()["n"]
-        return {"audit_entries": audit_count, "entities": entity_count, "inbox_conflicts": conflict_count}
+            lead_conflict_count = connection.execute("SELECT COUNT(*) AS n FROM match_lead_conflicts WHERE status='pending'").fetchone()["n"]
+        return {"audit_entries": audit_count, "entities": entity_count,
+                "inbox_conflicts": conflict_count, "pending_lead_conflicts": lead_conflict_count}

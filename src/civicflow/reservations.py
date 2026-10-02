@@ -15,18 +15,28 @@ class ReservationBook:
     database: Database
 
     def reserve(self, *, resource_id: str, subject_id: str, quantity: int, capacity: int, start_at: str, end_at: str, actor: str) -> dict:
+        with self.database.transaction() as connection:
+            return self.reserve_in(connection, resource_id=resource_id, subject_id=subject_id, quantity=quantity, capacity=capacity, start_at=start_at, end_at=end_at, actor=actor)
+
+    def reserve_in(self, connection, *, resource_id: str, subject_id: str, quantity: int, capacity: int, start_at: str, end_at: str, actor: str) -> dict:
+        """在已有事务内占用资源，供单事务同时占用多个资源使用。"""
         start_at = canonical_instant(start_at); end_at = canonical_instant(end_at)
         if parse_instant(start_at) >= parse_instant(end_at):
             raise ValidationError("预约结束时间必须晚于开始时间")
         if quantity <= 0 or capacity <= 0 or quantity > capacity:
             raise ValidationError("预约数量或容量不合法")
-        with self.database.transaction() as connection:
-            row = connection.execute("SELECT COALESCE(SUM(quantity),0) AS used FROM resource_reservations WHERE resource_id=? AND status IN ('held','confirmed') AND start_at<? AND end_at>?", (resource_id, end_at, start_at)).fetchone()
-            if int(row["used"]) + quantity > capacity:
-                raise ConflictError("资源容量不足")
-            reservation_id = new_id("reservation")
-            connection.execute("INSERT INTO resource_reservations(reservation_id,resource_id,subject_id,quantity,start_at,end_at,status,version,created_by) VALUES(?,?,?,?,?,?,?,?,?)", (reservation_id, resource_id, subject_id, quantity, start_at, end_at, "confirmed", 1, actor))
-            return {"reservation_id": reservation_id, "status": "confirmed", "version": 1}
+        row = connection.execute("SELECT COALESCE(SUM(quantity),0) AS used FROM resource_reservations WHERE resource_id=? AND status IN ('held','confirmed') AND start_at<? AND end_at>?", (resource_id, end_at, start_at)).fetchone()
+        if int(row["used"]) + quantity > capacity:
+            raise ConflictError(f"资源 {resource_id} 容量不足")
+        reservation_id = new_id("reservation")
+        connection.execute("INSERT INTO resource_reservations(reservation_id,resource_id,subject_id,quantity,start_at,end_at,status,version,created_by) VALUES(?,?,?,?,?,?,?,?,?)", (reservation_id, resource_id, subject_id, quantity, start_at, end_at, "confirmed", 1, actor))
+        return {"reservation_id": reservation_id, "resource_id": resource_id, "status": "confirmed", "version": 1}
+
+    def release_in(self, connection, reservation_id: str) -> None:
+        """在已有事务内释放占用。"""
+        changed = connection.execute("UPDATE resource_reservations SET status='released',version=version+1 WHERE reservation_id=? AND status IN ('held','confirmed')", (reservation_id,)).rowcount
+        if changed != 1:
+            raise ConflictError("预约已经释放或不存在")
 
     def release(self, reservation_id: str, *, expected_version: int) -> dict:
         with self.database.transaction() as connection:
